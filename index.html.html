@@ -1,0 +1,168 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GNet Reader Web (Final)</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 0; }
+    .container { padding: 20px; max-width: 960px; margin: auto; }
+    .box { background: white; padding: 20px; border-radius: 10px; margin-top: 40px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background: #007bff; color: white; }
+    .alert { margin-top: 20px; padding: 10px; border-radius: 5px; color: white; }
+    .good { background: #28a745; }
+    .medium { background: #ffc107; color: #333; }
+    .bad { background: #dc3545; }
+    .hidden { display: none; }
+    input[type="text"], input[type="password"] {
+      padding: 10px; margin: 5px 0 15px 0; width: 100%;
+      box-sizing: border-box; border-radius: 5px; border: 1px solid #ccc;
+    }
+    button {
+      padding: 10px 20px; background: #007bff; color: white;
+      border: none; border-radius: 5px; cursor: pointer; font-size: 16px;
+    }
+    .button-link {
+      display: inline-block; padding: 12px 20px; font-size: 16px;
+      background: #28a745; color: white; border-radius: 8px;
+      text-decoration: none; margin-top: 20px; display: inline-block;
+    }
+    .button-link:hover { background: #218838; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="box" id="loginBox">
+    <h2>🔐 Login GNet Reader</h2>
+    <input type="text" id="username" placeholder="Masukkan nama kamu">
+    <input type="password" id="password" placeholder="Masukkan password">
+    <button onclick="login()">Masuk</button>
+  </div>
+
+  <div class="box hidden" id="mainBox">
+    <h2>📶 GNet Reader Web</h2>
+    <p>Halo, <span id="displayName">Pengguna</span>! Upload file log GNetTrack di bawah ini:</p>
+
+    <input type="file" id="fileInput" accept=".txt">
+    <button onclick="exportCSV()">⬇️ Ekspor CSV</button>
+
+    <div style="margin-top: 20px;">
+      <h4>📲 Belum punya aplikasi GNetTrack Pro?</h4>
+      <a class="button-link" href="https://play.google.com/store/apps/details?id=com.gyokovsolutions.gnettrackpro" target="_blank">
+        🚀 Buka / Install GNetTrack Pro di Play Store
+      </a>
+    </div>
+
+    <div id="alertBox" class="alert hidden">Sinyal Buruk</div>
+    <div id="statsBox"></div>
+    <table id="dataTable">
+      <thead><tr><th>Timestamp</th><th>Operator</th><th>RSSI</th><th>RSRP</th><th>RSRQ</th><th>SINR</th><th>Mode</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <h3>📈 Grafik Parameter</h3>
+    <canvas id="chartRSSI" height="200"></canvas>
+    <canvas id="chartRSRP" height="200"></canvas>
+    <canvas id="chartRSRQ" height="200"></canvas>
+    <canvas id="chartSINR" height="200"></canvas>
+  </div>
+</div>
+<script>
+function login() {
+  const user = document.getElementById("username").value.trim();
+  const pass = document.getElementById("password").value.trim();
+  if (pass !== "gnetreader123") {
+    alert("Password salah!");
+    return;
+  }
+  document.getElementById("displayName").textContent = user || "Pengguna";
+  document.getElementById("loginBox").classList.add("hidden");
+  document.getElementById("mainBox").classList.remove("hidden");
+}
+
+function exportCSV() {
+  const rows = [...document.querySelectorAll("table tr")].map(r => [...r.querySelectorAll("td, th")].map(c => c.textContent).join(",")).join("\n");
+  const blob = new Blob([rows], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "data_sinyal.csv";
+  a.click();
+}
+
+function updateAllCharts(labels, rssi, rsrp, rsrq, sinr) {
+  const config = (label, data, color) => ({
+    type: 'line',
+    data: { labels: labels, datasets: [{ label, data, borderColor: color, backgroundColor: color+'22', tension: 0.4 }] },
+    options: { responsive: true, plugins: { legend: { position: 'top' }, title: { display: true, text: 'Grafik ' + label } } }
+  });
+  new Chart(document.getElementById("chartRSSI"), config("RSSI", rssi, "#6f42c1"));
+  new Chart(document.getElementById("chartRSRP"), config("RSRP", rsrp, "#007bff"));
+  new Chart(document.getElementById("chartRSRQ"), config("RSRQ", rsrq, "#fd7e14"));
+  new Chart(document.getElementById("chartSINR"), config("SINR", sinr, "#28a745"));
+}
+
+document.getElementById("fileInput").addEventListener("change", function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.split('\n').filter(l => l.trim() !== "");
+    const tbody = document.querySelector("#dataTable tbody");
+    const alertBox = document.getElementById("alertBox");
+    const statsBox = document.getElementById("statsBox");
+    tbody.innerHTML = "";
+    alertBox.classList.add("hidden");
+    statsBox.innerHTML = "";
+    const labels = [], rssiData = [], rsrpData = [], rsrqData = [], sinrData = [];
+    let allRows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split('\t');
+      if (cols.length < 20) continue;
+      const ts = cols[0];
+      const operator = cols[4];
+      const rssi = parseFloat(cols[13]);
+      const rsrp = parseFloat(cols[17]);
+      const rsrq = parseFloat(cols[14]);
+      const sinrRaw = cols[15];
+      const sinr = (!sinrRaw || sinrRaw === "-" || isNaN(parseFloat(sinrRaw))) ? null : parseFloat(sinrRaw);
+      const mode = cols[12];
+      const row = document.createElement("tr");
+      [ts, operator, rssi, rsrp, rsrq, (sinr === null ? "N/A" : sinr + " dB"), mode].forEach(val => {
+        const td = document.createElement("td");
+        td.textContent = val;
+        row.appendChild(td);
+      });
+      tbody.appendChild(row);
+      labels.push(ts.split("_")[1] || ts);
+      rssiData.push(isNaN(rssi) ? null : rssi);
+      rsrpData.push(isNaN(rsrp) ? null : rsrp);
+      rsrqData.push(isNaN(rsrq) ? null : rsrq);
+      sinrData.push(sinr);
+      allRows.push({ rssi, rsrp, rsrq, sinr });
+    }
+    if (allRows.length) {
+      const avgSINR = allRows.map(r => r.sinr).filter(v => v !== null);
+      const sinrAvg = avgSINR.length ? (avgSINR.reduce((a,b) => a+b)/avgSINR.length).toFixed(2) : "N/A";
+      const rsrpMin = Math.min(...allRows.map(r => r.rsrp));
+      const rsrqBest = Math.max(...allRows.map(r => r.rsrq));
+      statsBox.innerHTML = `<div style="margin-top:20px;"><strong>📊 Statistik Sinyal:</strong><br>SINR Rata-rata: ${sinrAvg} dB<br>RSRP Terendah: ${rsrpMin} dBm<br>RSRQ Terbaik: ${rsrqBest} dB</div>`;
+      let sinr = allRows[0].sinr, rsrq = allRows[0].rsrq;
+      let quality = "", className = "";
+      if (sinr >= 20 && rsrq >= -10) { quality = "Sinyal Baik"; className = "good"; }
+      else if (sinr >= 10 && rsrq >= -15) { quality = "Sinyal Cukup"; className = "medium"; }
+      else { quality = "Sinyal Buruk"; className = "bad"; }
+      alertBox.textContent = quality;
+      alertBox.className = `alert ${className}`;
+      alertBox.classList.remove("hidden");
+    }
+    updateAllCharts(labels, rssiData, rsrpData, rsrqData, sinrData);
+  };
+  reader.readAsText(file);
+});
+</script>
+</body>
+</html>
