@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard Analisis Jaringan</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background: #eef2f7; margin: 0; padding: 0; }
+    .container { max-width: 1000px; margin: auto; padding: 30px; }
+    .panel { background: #fff; padding: 25px; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); margin-bottom: 30px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+    th, td { border: 1px solid #bbb; padding: 8px; text-align: center; }
+    th { background-color: #3f72af; color: white; }
+    .status-info { padding: 10px; border-radius: 5px; color: white; margin-top: 20px; }
+    .baik { background-color: #28a745; }
+    .cukup { background-color: #ffc107; color: #333; }
+    .buruk { background-color: #dc3545; }
+    .sembunyi { display: none; }
+    input[type="text"], input[type="password"] {
+      padding: 10px; margin-bottom: 10px; width: 100%;
+      border: 1px solid #ccc; border-radius: 6px;
+    }
+    button {
+      padding: 10px 18px; background: #3f72af; color: white;
+      border: none; border-radius: 6px; font-weight: bold; cursor: pointer;
+    }
+    canvas { margin-top: 25px; }
+    footer { text-align: center; margin-top: 40px; font-size: 13px; color: #777; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="panel" id="panelLogin">
+    <h2>🔐 Masuk Sistem Analisis</h2>
+    <input type="text" id="inputNama" placeholder="Nama Pengguna" />
+    <input type="password" id="inputKataSandi" placeholder="Kata Sandi" />
+    <button onclick="prosesLogin()">Lanjut</button>
+  </div>
+
+  <div class="panel sembunyi" id="panelUtama">
+    <h2>📡 Sistem Analisis Kualitas Sinyal LTE</h2>
+    <p>Selamat datang, <strong><span id="namaPengguna">User</span></strong>! Silakan unggah data log jaringan:</p>
+    <input type="file" id="unggahFile" accept=".txt" />
+    <button onclick="unduhCSV()">📥 Simpan sebagai CSV</button>
+
+    <div style="margin-top:20px;">
+      <div id="peringatanSinyal" class="status-info sembunyi">Kualitas Jaringan</div>
+      <div id="kotakStatistik"></div>
+    </div>
+
+    <div style="overflow-x:auto;"><table id="tabelData">
+      <thead><tr><th>Waktu</th><th>Operator</th><th>RSSI</th><th>RSRP</th><th>RSRQ</th><th>SINR</th><th>Mode</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+
+    <canvas id="grafikRSSI"></canvas>
+    <canvas id="grafikRSRP"></canvas>
+    <canvas id="grafikRSRQ"></canvas>
+    <canvas id="grafikSINR"></canvas>
+  </div>
+
+  <footer>
+    Dibuat oleh: <strong>Ferina Najwa</strong> | Tugas Akhir - Teknik Telekomunikasi, 2025
+  </footer>
+</div>
+
+<script>
+function prosesLogin() {
+  const nama = document.getElementById("inputNama").value.trim();
+  const sandi = document.getElementById("inputKataSandi").value.trim();
+  if (sandi !== "gnetreader123") {
+    alert("Kata sandi salah!");
+    return;
+  }
+  document.getElementById("namaPengguna").textContent = nama || "Pengguna";
+  document.getElementById("panelLogin").classList.add("sembunyi");
+  document.getElementById("panelUtama").classList.remove("sembunyi");
+}
+
+function unduhCSV() {
+  const baris = [...document.querySelectorAll("table tr")].map(r =>
+    [...r.querySelectorAll("td, th")].map(c => c.textContent).join(",")
+  ).join("\n");
+  const blob = new Blob([baris], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "hasil_analisis_jaringan.csv";
+  a.click();
+}
+
+function tampilkanGrafik(label, data, warna, id) {
+  new Chart(document.getElementById(id), {
+    type: 'line',
+    data: {
+      labels: data.map((_, i) => i + 1),
+      datasets: [{ label, data, borderColor: warna, backgroundColor: warna + '33', tension: 0.4 }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } } }
+  });
+}
+
+document.getElementById("unggahFile").addEventListener("change", function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const baris = e.target.result.split('\n').filter(l => l.trim() !== "");
+    const tbody = document.querySelector("#tabelData tbody");
+    const peringatan = document.getElementById("peringatanSinyal");
+    const statistik = document.getElementById("kotakStatistik");
+    tbody.innerHTML = "";
+    peringatan.classList.add("sembunyi");
+    statistik.innerHTML = "";
+    const rssi = [], rsrp = [], rsrq = [], sinr = [], label = [];
+    let semuaData = [];
+
+    for (let i = 1; i < baris.length; i++) {
+      const kolom = baris[i].split('\t');
+      if (kolom.length < 20) continue;
+      const waktu = kolom[0];
+      const provider = kolom[4];
+      const rssiVal = parseFloat(kolom[13]);
+      const rsrpVal = parseFloat(kolom[17]);
+      const rsrqVal = parseFloat(kolom[14]);
+      const sinrRaw = kolom[15];
+      const sinrVal = (!sinrRaw || sinrRaw === "-" || isNaN(parseFloat(sinrRaw))) ? null : parseFloat(sinrRaw);
+      const mode = kolom[12];
+      const row = document.createElement("tr");
+      [waktu, provider, rssiVal, rsrpVal, rsrqVal, (sinrVal === null ? "N/A" : sinrVal + " dB"), mode].forEach(val => {
+        const td = document.createElement("td");
+        td.textContent = val;
+        row.appendChild(td);
+      });
+      tbody.appendChild(row);
+      label.push(i);
+      rssi.push(isNaN(rssiVal) ? null : rssiVal);
+      rsrp.push(isNaN(rsrpVal) ? null : rsrpVal);
+      rsrq.push(isNaN(rsrqVal) ? null : rsrqVal);
+      sinr.push(sinrVal);
+      semuaData.push({ sinr: sinrVal, rsrq: rsrqVal });
+    }
+
+    if (semuaData.length) {
+      const avgSINR = semuaData.map(d => d.sinr).filter(v => v !== null);
+      const sinrRata = avgSINR.length ? (avgSINR.reduce((a,b)=>a+b)/avgSINR.length).toFixed(2) : "N/A";
+      const minRSRP = Math.min(...rsrp);
+      const maxRSRQ = Math.max(...rsrq);
+      statistik.innerHTML = `<strong>📊 Statistik:</strong><br>SINR Rata-rata: ${sinrRata} dB<br>RSRP Terendah: ${minRSRP} dBm<br>RSRQ Tertinggi: ${maxRSRQ} dB`;
+
+      const sinrEval = parseFloat(sinrRata);
+      const rsrqEval = maxRSRQ;
+      let status = "", kelas = "";
+      if (sinrEval >= 20 && rsrqEval >= -10) { status = "Sinyal Sangat Baik"; kelas = "baik"; }
+      else if (sinrEval >= 10 && rsrqEval >= -15) { status = "Sinyal Cukup"; kelas = "cukup"; }
+      else { status = "Sinyal Lemah"; kelas = "buruk"; }
+
+      peringatan.textContent = status;
+      peringatan.className = `status-info ${kelas}`;
+      peringatan.classList.remove("sembunyi");
+    }
+
+    tampilkanGrafik("RSSI", rssi, "#6f42c1", "grafikRSSI");
+    tampilkanGrafik("RSRP", rsrp, "#007bff", "grafikRSRP");
+    tampilkanGrafik("RSRQ", rsrq, "#fd7e14", "grafikRSRQ");
+    tampilkanGrafik("SINR", sinr, "#28a745", "grafikSINR");
+  };
+  reader.readAsText(file);
+});
+</script>
+</body>
+</html>
