@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GNetReader - Signal Quality Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <style>
+        :root {
+            --primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --bg-light: #f7fafc;
+            --text-dark: #2d3748;
+            --text-light: #718096;
+            --border: #e2e8f0;
+            --shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--primary);
+            min-height: 100vh;
+        }
+
+        /* Login */
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .login-box {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            width: 400px;
+            text-align: center;
+        }
+
+        .login-box h2 { color: var(--text-dark); margin-bottom: 30px; }
+
+        .login-box input {
+            width: 100%;
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .login-box input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .btn:hover { transform: translateY(-2px); }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            width: 100%;
+        }
+
+        .btn-success {
+            background: #48bb78;
+            color: white;
+        }
+
+        /* Dashboard */
+        .dashboard {
+            display: none;
+            background: var(--bg-light);
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: 280px;
+            background: linear-gradient(180deg, #4a5568 0%, #2d3748 100%);
+            color: white;
+            position: fixed;
+            height: 100vh;
+            padding: 30px 0;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .sidebar-header {
+            padding: 0 30px 40px;
+            border-bottom: 1px solid #718096;
+        }
+
+        .sidebar-menu a {
+            display: flex;
+            align-items: center;
+            padding: 15px 30px;
+            color: #e2e8f0;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border-left: 4px solid transparent;
+        }
+
+        .sidebar-menu a:hover,
+        .sidebar-menu a.active {
+            background: rgba(102, 126, 234, 0.2);
+            border-left-color: #667eea;
+        }
+
+        .content {
+            margin-left: 280px;
+            padding: 30px;
+            background: var(--bg-light);
+            min-height: 100vh;
+        }
+
+        .section {
+            display: none;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: var(--shadow);
+            margin-bottom: 30px;
+        }
+
+        .card h3 { color: var(--text-dark); margin-bottom: 15px; }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: var(--shadow);
+            position: relative;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--primary);
+        }
+
+        .stat-value {
+            color: var(--text-dark);
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .status-indicator {
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: 600;
+            color: white;
+            margin-top: 20px;
+        }
+
+        .status-good { background: #48bb78; }
+        .status-medium { background: #ed8936; }
+        .status-poor { background: #f56565; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background: var(--bg-light);
+            font-weight: 600;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 400px;
+        }
+
+        .hidden { display: none !important; }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .file-info {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f0f8ff;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 100%;
+                height: auto;
+                position: relative;
+            }
+
+            .content {
+                margin-left: 0;
+                padding: 20px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .login-box {
+                width: 90%;
+                padding: 30px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Page -->
+    <div class="login-container" id="loginPage">
+        <div class="login-box">
+            <h2> GNetReader</h2>
+            <p style="color: #718096; margin-bottom: 25px;">Signal Quality Dashboard</p>
+            <input type="text" id="username" placeholder="Username" required>
+            <input type="password" id="password" placeholder="Password" required>
+            <button class="btn btn-primary" onclick="login()">
+                <span id="loginText">Masuk</span>
+                <span id="loginLoading" class="loading hidden"></span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div class="dashboard" id="dashboardPage">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h1>GNetReader</h1>
+                <p>Signal Quality Dashboard</p>
+            </div>
+            <nav class="sidebar-menu">
+                <a onclick="showSection('dashboard')" class="active"> Dashboard</a>
+                <a onclick="showSection('statistik')"> Statistik</a>
+                <a onclick="showSection('grafik')"> Grafik</a>
+                <a onclick="logout()"> Logout</a>
+            </nav>
+        </div>
+
+        <div class="content">
+            <!-- Dashboard Section -->
+            <div id="dashboard" class="section active">
+                <h2>Dashboard Overview</h2>
+                <p>Monitor kualitas sinyal jaringan secara real-time</p>
+
+                <div class="card">
+                    <h3> Upload Data File</h3>
+                    <input type="file" id="fileInput" accept=".txt" onchange="handleFileUpload(event)">
+                    <button class="btn btn-success" onclick="exportToExcel()"> Export Excel</button>
+                    <div id="fileInfo" class="file-info hidden"></div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>RSSI Average</h3>
+                        <div class="stat-value" id="rssiAvg">-</div>
+                        <div>dBm</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>RSRP Average</h3>
+                        <div class="stat-value" id="rsrpAvg">-</div>
+                        <div>dBm</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>RSRQ Average</h3>
+                        <div class="stat-value" id="rsrqAvg">-</div>
+                        <div>dB</div>
+                    </div>
+                </div>
+
+                <div id="overallStatus" class="status-indicator hidden">
+                    <span id="statusText">Evaluating signal quality...</span>
+                </div>
+
+                <div class="card">
+                    <h3> Data Tabel</h3>
+                    <table id="dataTable">
+                        <thead>
+                            <tr>
+                                <th>Waktu</th>
+                                <th>Operator</th>
+                                <th>RSSI (dBm)</th>
+                                <th>RSRP (dBm)</th>
+                                <th>RSRQ (dB)</th>
+                                <th>Mode</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Statistik Section -->
+            <div id="statistik" class="section">
+                <h2>Statistik Detail</h2>
+                <p>Analisis mendalam data kualitas sinyal</p>
+
+                <div class="card">
+                    <h3> Data Statistik</h3>
+                    <table id="statsTable">
+                        <thead>
+                            <tr>
+                                <th>Waktu</th>
+                                <th>Operator</th>
+                                <th>RSSI (dBm)</th>
+                                <th>RSRP (dBm)</th>
+                                <th>RSRQ (dB)</th>
+                                <th>Mode</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Grafik Section -->
+            <div id="grafik" class="section">
+                <h2>Grafik Visualisasi</h2>
+                <p>Visualisasi data kualitas sinyal dalam bentuk grafik</p>
+
+                <div class="card">
+                    <h3> RSSI Signal Strength</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="rssiChart"></canvas>
+                    </div>
+                    <div id="rssiStatus" class="status-indicator hidden"></div>
+                </div>
+
+                <div class="card">
+                    <h3> RSRP Signal Power</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="rsrpChart"></canvas>
+                    </div>
+                    <div id="rsrpStatus" class="status-indicator hidden"></div>
+                </div>
+
+                <div class="card">
+                    <h3> RSRQ Signal Quality</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="rsrqChart"></canvas>
+                    </div>
+                    <div id="rsrqStatus" class="status-indicator hidden"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let signalData = { rssi: [], rsrp: [], rsrq: [], labels: [], rawData: [] };
+        let charts = {};
+
+        // Utility functions
+        const $ = id => document.getElementById(id);
+        const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+        const show = el => el.classList.remove('hidden');
+        const hide = el => el.classList.add('hidden');
+
+        // Login function
+        function login() {
+            const username = $('username').value;
+            const password = $('password').value;
+            
+            if (username === 'admin' && password === 'lte123') {
+                hide($('loginText'));
+                show($('loginLoading'));
+                
+                setTimeout(() => {
+                    $('loginPage').style.display = 'none';
+                    $('dashboardPage').style.display = 'block';
+                    generateSampleData();
+                }, 1000);
+            } else {
+                alert('Username atau password salah!');
+            }
+        }
+
+        // Generate sample data
+        function generateSampleData() {
+            const now = new Date();
+            const sampleData = [];
+            
+            for (let i = 0; i < 50; i++) {
+                const time = new Date(now.getTime() - (50 - i) * 60000);
+                sampleData.push({
+                    time: time.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+                    operator: i % 2 === 0 ? 'Telkomsel' : 'Indosat',
+                    rssi: -80 + Math.random() * 30 - 15,
+                    rsrp: -85 + Math.random() * 25 - 12,
+                    rsrq: -10 + Math.random() * 20 - 10,
+                    mode: 'LTE'
+                });
+            }
+            
+            signalData = {
+                rssi: sampleData.map(d => d.rssi),
+                rsrp: sampleData.map(d => d.rsrp),
+                rsrq: sampleData.map(d => d.rsrq),
+                labels: sampleData.map(d => d.time),
+                rawData: sampleData
+            };
+            
+            updateAll();
+        }
+
+        // Logout function
+        function logout() {
+            if (confirm('Apakah Anda yakin ingin logout?')) {
+                location.reload();
+            }
+        }
+
+        // Show section
+        function showSection(sectionId) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.sidebar-menu a').forEach(a => a.classList.remove('active'));
+            
+            $(sectionId).classList.add('active');
+            event.target.classList.add('active');
+            
+            if (sectionId === 'grafik') {
+                setTimeout(renderAllCharts, 100);
+            }
+        }
+
+        // File upload
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const fileInfo = $('fileInfo');
+            fileInfo.innerHTML = ` File: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`;
+            show(fileInfo);
+
+            const reader = new FileReader();
+            reader.onload = e => parseDataFile(e.target.result);
+            reader.readAsText(file);
+        }
+
+        // Parse data file
+        function parseDataFile(content) {
+            const lines = content.split('\n').filter(line => line.trim());
+            signalData = { rssi: [], rsrp: [], rsrq: [], labels: [], rawData: [] };
+
+            for (let i = 1; i < lines.length; i++) {
+                const columns = lines[i].split('\t');
+                if (columns.length < 18) continue;
+
+                const dataPoint = {
+                    time: columns[0] || 'N/A',
+                    operator: columns[4] || 'N/A',
+                    rssi: parseFloat(columns[13]) || 0,
+                    rsrp: parseFloat(columns[17]) || 0,
+                    rsrq: parseFloat(columns[14]) || 0,
+                    mode: columns[12] || 'N/A'
+                };
+
+                signalData.rssi.push(dataPoint.rssi);
+                signalData.rsrp.push(dataPoint.rsrp);
+                signalData.rsrq.push(dataPoint.rsrq);
+                signalData.labels.push(dataPoint.time);
+                signalData.rawData.push(dataPoint);
+            }
+
+            updateAll();
+        }
+
+        // Update all UI elements
+        function updateAll() {
+            updateStats();
+            updateTable();
+            renderAllCharts();
+        }
+
+        // Update statistics
+        function updateStats() {
+            const rssiAvg = avg(signalData.rssi);
+            const rsrpAvg = avg(signalData.rsrp);
+            const rsrqAvg = avg(signalData.rsrq);
+
+            $('rssiAvg').textContent = rssiAvg.toFixed(2);
+            $('rsrpAvg').textContent = rsrpAvg.toFixed(2);
+            $('rsrqAvg').textContent = rsrqAvg.toFixed(2);
+
+            updateOverallStatus(rssiAvg, rsrpAvg, rsrqAvg);
+        }
+
+        // Update overall status
+        function updateOverallStatus(rssi, rsrp, rsrq) {
+            const scores = [
+                rssi >= -85 ? 3 : rssi >= -95 ? 2 : 1,
+                rsrp >= -90 ? 3 : rsrp >= -105 ? 2 : 1,
+                rsrq >= -10 ? 3 : rsrq >= -15 ? 2 : 1
+            ];
+            
+            const avgScore = scores.reduce((a, b) => a + b, 0) / 3;
+            const statusEl = $('overallStatus');
+            const statusText = $('statusText');
+            
+            show(statusEl);
+            
+            if (avgScore >= 2.5) {
+                statusEl.className = 'status-indicator status-good';
+                statusText.textContent = ' Status: Baik - Kualitas Sinyal Optimal';
+            } else if (avgScore >= 1.5) {
+                statusEl.className = 'status-indicator status-medium';
+                statusText.textContent = ' Status: Sedang - Kualitas Sinyal Cukup';
+            } else {
+                statusEl.className = 'status-indicator status-poor';
+                statusText.textContent = ' Status: Buruk - Kualitas Sinyal Rendah';
+            }
+        }
+
+        // Update table
+        function updateTable() {
+            ['dataTable', 'statsTable'].forEach(tableId => {
+                const tbody = $(`${tableId}`).querySelector('tbody');
+                tbody.innerHTML = '';
+                
+                signalData.rawData.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${row.time}</td>
+                        <td>${row.operator}</td>
+                        <td>${row.rssi.toFixed(2)}</td>
+                        <td>${row.rsrp.toFixed(2)}</td>
+                        <td>${row.rsrq.toFixed(2)}</td>
+                        <td>${row.mode}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            });
+        }
+
+        // Render all charts
+        function renderAllCharts() {
+            renderChart('rssiChart', 'RSSI', signalData.rssi, '#4299e1');
+            renderChart('rsrpChart', 'RSRP', signalData.rsrp, '#48bb78');
+            renderChart('rsrqChart', 'RSRQ', signalData.rsrq, '#ed8936');
+            
+            updateChartStatus('rssiStatus', avg(signalData.rssi), 'rssi');
+            updateChartStatus('rsrpStatus', avg(signalData.rsrp), 'rsrp');
+            updateChartStatus('rsrqStatus', avg(signalData.rsrq), 'rsrq');
+        }
+
+        // Render chart
+        function renderChart(canvasId, label, data, color) {
+            const canvas = $(canvasId);
+            if (!canvas) return;
+
+            if (charts[canvasId]) {
+                charts[canvasId].destroy();
+            }
+
+            const ctx = canvas.getContext('2d');
+            charts[canvasId] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: signalData.labels,
+                    datasets: [{
+                        label: label,
+                        data: data,
+                        borderColor: color,
+                        backgroundColor: color + '20',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update chart status
+        function updateChartStatus(elementId, average, type) {
+            const statusEl = $(elementId);
+            if (!statusEl) return;
+            
+            show(statusEl);
+            
+            const thresholds = {
+                rssi: { good: -85, medium: -95, name: 'RSSI' },
+                rsrp: { good: -90, medium: -105, name: 'RSRP' },
+                rsrq: { good: -10, medium: -15, name: 'RSRQ' }
+            };
+            
+            const threshold = thresholds[type];
+            let className = 'status-indicator ';
+            let message = '';
+            
+            if (average >= threshold.good) {
+                className += 'status-good';
+                message = ` ${threshold.name}: Excellent`;
+            } else if (average >= threshold.medium) {
+                className += 'status-medium';
+                message = ` ${threshold.name}: Good`;
+            } else {
+                className += 'status-poor';
+                message = ` ${threshold.name}: Poor`;
+            }
+            
+            statusEl.className = className;
+            statusEl.textContent = message;
+        }
+
+        // Export to Excel
+        function exportToExcel() {
+            if (!signalData.rawData.length) {
+                alert('Tidak ada data untuk di-export!');
+                return;
+            }
+
+            const workbook = XLSX.utils.book_new();
+            const worksheet = XLSX.utils.json_to_sheet(signalData.rawData);
+            
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Signal Data');
+            
+            const fileName = `signal_data_${new Date().toISOString().split('T')[0]}.xlsx`;
+            XLSX.writeFile(workbook, fileName);
+        }
+
+        // Handle enter key in login
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && $('loginPage').style.display !== 'none') {
+                login();
+            }
+        });
+    </script>
+</body>
+</html>
